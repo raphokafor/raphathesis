@@ -396,3 +396,6 @@ node src/cli.js run https://petstore.swagger.io/v2/swagger.json \
  --output petstore-report.html
 
 # raphathesis
+
+npm install --save-dev ts-node
+npx ts-node examples/basic-usage.ts
