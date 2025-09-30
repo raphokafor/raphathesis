@@ -2,12 +2,17 @@
 
 import { JSSchemathesis } from "../src/index.js";
 import fs from "fs/promises";
+import type {
+  TestResult,
+  TestSummary,
+  OpenAPISchema,
+} from "../src/types/index.js";
 
 /**
  * Advanced usage examples showing more sophisticated testing scenarios
  */
 
-async function authenticationExample() {
+async function authenticationExample(): Promise<void> {
   console.log("🔐 Authentication Example\n");
 
   try {
@@ -30,11 +35,11 @@ async function authenticationExample() {
       "Note: Replace with actual API endpoint and token for real testing"
     );
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error:", (error as Error).message);
   }
 }
 
-async function customValidationExample() {
+async function customValidationExample(): Promise<void> {
   console.log("\n🔍 Custom Validation Example\n");
 
   try {
@@ -48,7 +53,7 @@ async function customValidationExample() {
     const schema = await tester.parser.parse(
       "https://petstore.swagger.io/v2/swagger.json"
     );
-    const results = await tester.testEndpoint(
+    const results: TestResult[] = await tester.testEndpoint(
       schema,
       "/store/inventory",
       "get"
@@ -69,11 +74,11 @@ async function customValidationExample() {
       }
     }
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error:", (error as Error).message);
   }
 }
 
-async function performanceTestingExample() {
+async function performanceTestingExample(): Promise<void> {
   console.log("\n⚡ Performance Testing Example\n");
 
   try {
@@ -101,14 +106,27 @@ async function performanceTestingExample() {
       );
     }
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error:", (error as Error).message);
   }
 }
 
-async function batchTestingExample() {
+interface APIConfig {
+  name: string;
+  schema: string;
+  baseURL: string;
+}
+
+interface BatchResult {
+  api: string;
+  summary?: TestSummary;
+  error?: string;
+  timestamp: string;
+}
+
+async function batchTestingExample(): Promise<void> {
   console.log("\n📦 Batch Testing Example\n");
 
-  const apis = [
+  const apis: APIConfig[] = [
     {
       name: "Petstore API",
       schema: "https://petstore.swagger.io/v2/swagger.json",
@@ -117,7 +135,7 @@ async function batchTestingExample() {
     // Add more APIs here
   ];
 
-  const results = [];
+  const results: BatchResult[] = [];
 
   for (const api of apis) {
     try {
@@ -134,16 +152,18 @@ async function batchTestingExample() {
 
       results.push({
         api: api.name,
-        summary,
+        summary: summary || undefined,
         timestamp: new Date().toISOString(),
       });
 
-      console.log(`✅ ${api.name}: ${summary.passRate}% pass rate`);
+      console.log(`✅ ${api.name}: ${summary?.passRate}% pass rate`);
     } catch (error) {
-      console.error(`❌ Failed to test ${api.name}: ${error.message}`);
+      console.error(
+        `❌ Failed to test ${api.name}: ${(error as Error).message}`
+      );
       results.push({
         api: api.name,
-        error: error.message,
+        error: (error as Error).message,
         timestamp: new Date().toISOString(),
       });
     }
@@ -159,7 +179,7 @@ async function batchTestingExample() {
   console.log("📄 Batch results saved to batch-test-results.json");
 }
 
-async function securityTestingExample() {
+async function securityTestingExample(): Promise<void> {
   console.log("\n🔒 Security Testing Example\n");
 
   try {
@@ -171,7 +191,7 @@ async function securityTestingExample() {
     });
 
     // Focus on security-related endpoints
-    const schema = await tester.parser.parse(
+    const schema: OpenAPISchema = await tester.parser.parse(
       "https://petstore.swagger.io/v2/swagger.json"
     );
 
@@ -182,14 +202,14 @@ async function securityTestingExample() {
       { path: "/pet", method: "post" },
     ];
 
-    const allResults = [];
+    const allResults: TestResult[] = [];
 
     for (const endpoint of securityEndpoints) {
       console.log(
         `🔀 Fuzzing ${endpoint.method.toUpperCase()} ${endpoint.path}...`
       );
 
-      const results = await tester.fuzzEndpoint(
+      const results: TestResult[] = await tester.fuzzEndpoint(
         schema,
         endpoint.path,
         endpoint.method,
@@ -231,18 +251,18 @@ async function securityTestingExample() {
       console.log("✅ No obvious security issues detected");
     }
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error:", (error as Error).message);
   }
 }
 
-async function customReportingExample() {
+async function customReportingExample(): Promise<void> {
   console.log("\n📊 Custom Reporting Example\n");
 
   try {
     const tester = new JSSchemathesis({
       baseURL: "https://petstore.swagger.io/v2",
       maxTests: 15,
-      outputFormat: "html",
+      outputFormat: "json",
     });
 
     const report = await tester.runFromSchema(
@@ -269,12 +289,12 @@ async function customReportingExample() {
     await fs.writeFile("test-report.html", htmlReport, "utf-8");
     console.log("📄 HTML report saved to test-report.html");
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error:", (error as Error).message);
   }
 }
 
 // Run all advanced examples
-async function main() {
+async function main(): Promise<void> {
   await authenticationExample();
   await customValidationExample();
   await performanceTestingExample();

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
 import { JSSchemathesis } from "../src/index.js";
+import type { TestResult } from "../src/types/index.js";
 
 /**
  * Basic usage example of JS-Schemathesis
  * This demonstrates how to use the framework programmatically
  */
 
-async function basicExample() {
+async function basicExample(): Promise<void> {
   console.log("🧪 JS-Schemathesis Basic Usage Example\n");
 
   try {
@@ -15,6 +16,7 @@ async function basicExample() {
     const tester = new JSSchemathesis({
       baseURL: "https://petstore.swagger.io/v2",
       timeout: 5000,
+      maxTests: 20,
       verbose: true,
       validateResponses: true,
       fuzzingEnabled: true,
@@ -32,11 +34,11 @@ async function basicExample() {
     const summary = tester.getSummary();
     console.log("📊 Test Summary:", summary);
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error:", (error as Error).message);
   }
 }
 
-async function customEndpointExample() {
+async function customEndpointExample(): Promise<void> {
   console.log("\n🎯 Testing Specific Endpoint Example\n");
 
   try {
@@ -51,10 +53,13 @@ async function customEndpointExample() {
     );
 
     // Test a specific endpoint
-    const results = await tester.testEndpoint(
+    const results: TestResult[] = await tester.testEndpoint(
       schema,
       "/pet/findByStatus",
-      "get"
+      "get",
+      {
+        maxTests: 10,
+      }
     );
 
     console.log(
@@ -66,11 +71,11 @@ async function customEndpointExample() {
     const failed = results.filter((r) => r.status === "failed").length;
     console.log(`Results: ${passed} passed, ${failed} failed`);
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error:", (error as Error).message);
   }
 }
 
-async function fuzzingExample() {
+async function fuzzingExample(): Promise<void> {
   console.log("\n🔀 Fuzzing Example\n");
 
   try {
@@ -87,12 +92,19 @@ async function fuzzingExample() {
 
     // Run fuzzing tests on POST /pet endpoint
     console.log("Running fuzzing tests on POST /pet...");
-    const fuzzResults = await tester.fuzzEndpoint(schema, "/pet", "post");
+    const fuzzResults: TestResult[] = await tester.fuzzEndpoint(
+      schema,
+      "/pet",
+      "post",
+      {
+        maxTests: 15,
+      }
+    );
 
     console.log(`🔀 Completed ${fuzzResults.length} fuzz tests`);
 
     // Analyze results
-    const strategies = {};
+    const strategies: Record<string, number> = {};
     for (const result of fuzzResults) {
       const strategy = result.testCase.strategy || "unknown";
       strategies[strategy] = (strategies[strategy] || 0) + 1;
@@ -110,12 +122,12 @@ async function fuzzingExample() {
       );
     }
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error:", (error as Error).message);
   }
 }
 
 // Run examples
-async function main() {
+async function main(): Promise<void> {
   await basicExample();
   await customEndpointExample();
   await fuzzingExample();

@@ -3,39 +3,66 @@ import { TestGenerator } from "./generator/test-generator.js";
 import { APITester } from "./tester/api-tester.js";
 import { Reporter } from "./reporter/reporter.js";
 import { FuzzingEngine } from "./fuzzer/fuzzing-engine.js";
+import type {
+  JSSchemathesisOptions,
+  OpenAPISchema,
+  TestCase,
+  TestResult,
+  TestSummary,
+  GenerationOptions,
+} from "./types/index.js";
 
 /**
- * Main JSSchemathesis class - JavaScript equivalent of Python schemathesis
+ * Main JSSchemathesis class - TypeScript equivalent of Python schemathesis
  * Provides property-based testing for APIs using OpenAPI specifications
  */
 export class JSSchemathesis {
-  constructor(options = {}) {
+  public readonly options: Required<JSSchemathesisOptions>;
+  public readonly parser: OpenAPIParser;
+  public readonly generator: TestGenerator;
+  public readonly tester: APITester;
+  public readonly reporter: Reporter;
+  public readonly fuzzer: FuzzingEngine;
+  private results: TestResult[] = [];
+
+  constructor(options: JSSchemathesisOptions = {}) {
     this.options = {
       baseURL: options.baseURL || "",
       timeout: options.timeout || 10000,
       maxTests: options.maxTests || 100,
       verbose: options.verbose || false,
       headers: options.headers || {},
-      auth: options.auth || null,
+      auth: options.auth || undefined,
       validateResponses: options.validateResponses !== false,
       fuzzingEnabled: options.fuzzingEnabled !== false,
       propertyTests: options.propertyTests !== false,
+      aggressiveness: options.aggressiveness || "medium",
+      includeSecurityTests: options.includeSecurityTests !== false,
+      includeBoundaryTests: options.includeBoundaryTests !== false,
+      includeTypeConfusion: options.includeTypeConfusion !== false,
+      maxFuzzTests: options.maxFuzzTests || 50,
+      seed: options.seed || Date.now(),
+      outputFormat: options.outputFormat || "console",
+      outputFile: options.outputFile || undefined,
+      includePassedTests: options.includePassedTests !== false,
+      includeRequestDetails: options.includeRequestDetails || false,
+      followRedirects: options.followRedirects !== false,
+      maxRedirects: options.maxRedirects || 5,
+      retries: options.retries || 0,
       ...options,
-    };
+    } as Required<JSSchemathesisOptions>;
 
     this.parser = new OpenAPIParser();
     this.generator = new TestGenerator(this.options);
     this.tester = new APITester(this.options);
     this.reporter = new Reporter(this.options);
     this.fuzzer = new FuzzingEngine(this.options);
-
-    this.results = [];
   }
 
   /**
    * Run tests from an OpenAPI schema file or URL
    */
-  async runFromSchema(schemaPath) {
+  async runFromSchema(schemaPath: string): Promise<string> {
     try {
       console.log(`🔍 Parsing OpenAPI schema: ${schemaPath}`);
       const schema = await this.parser.parse(schemaPath);
@@ -55,21 +82,29 @@ export class JSSchemathesis {
       // Generate and return report
       return this.reporter.generateReport(results);
     } catch (error) {
-      throw new Error(`Failed to run tests: ${error.message}`);
+      throw new Error(`Failed to run tests: ${(error as Error).message}`);
     }
   }
 
   /**
    * Run tests from a live API endpoint that serves OpenAPI spec
    */
-  async runFromURL(specURL, options = {}) {
+  async runFromURL(
+    specURL: string,
+    options: GenerationOptions = {}
+  ): Promise<string> {
     return this.runFromSchema(specURL);
   }
 
   /**
    * Run property-based tests on specific endpoints
    */
-  async testEndpoint(schema, path, method, options = {}) {
+  async testEndpoint(
+    schema: OpenAPISchema,
+    path: string,
+    method: string,
+    options: GenerationOptions = {}
+  ): Promise<TestResult[]> {
     const testCases = await this.generator.generateForEndpoint(
       schema,
       path,
@@ -82,7 +117,12 @@ export class JSSchemathesis {
   /**
    * Run fuzzing tests specifically
    */
-  async fuzzEndpoint(schema, path, method, options = {}) {
+  async fuzzEndpoint(
+    schema: OpenAPISchema,
+    path: string,
+    method: string,
+    options: GenerationOptions = {}
+  ): Promise<TestResult[]> {
     const fuzzTests = await this.fuzzer.generateFuzzTests(
       schema,
       path,
@@ -95,14 +135,14 @@ export class JSSchemathesis {
   /**
    * Get the last test results
    */
-  getResults() {
+  getResults(): TestResult[] {
     return this.results;
   }
 
   /**
    * Get summary statistics
    */
-  getSummary() {
+  getSummary(): TestSummary | null {
     if (!this.results.length) return null;
 
     const passed = this.results.filter((r) => r.status === "passed").length;
@@ -120,3 +160,23 @@ export class JSSchemathesis {
 }
 
 export default JSSchemathesis;
+
+// Re-export types for convenience
+export type {
+  JSSchemathesisOptions,
+  OpenAPISchema,
+  TestCase,
+  TestResult,
+  TestSummary,
+  AuthConfig,
+  FuzzStrategy,
+  AggressivenessLevel,
+  OutputFormat,
+} from "./types/index.js";
+
+// Re-export individual classes for advanced usage
+export { OpenAPIParser } from "./parser/openapi-parser.js";
+export { TestGenerator } from "./generator/test-generator.js";
+export { APITester } from "./tester/api-tester.js";
+export { Reporter } from "./reporter/reporter.js";
+export { FuzzingEngine } from "./fuzzer/fuzzing-engine.js";

@@ -1,19 +1,34 @@
 import fc from "fast-check";
+import type {
+  OpenAPISchema,
+  TestCase,
+  TestParameters,
+  RequestBody,
+  FuzzStrategy,
+  AggressivenessLevel,
+  GenerationOptions,
+  JSONSchema,
+  JSSchemathesisOptions,
+  ExpectedOutcome,
+} from "../types/index.js";
 
 /**
  * Fuzzing Engine
  * Generates malformed, edge case, and malicious inputs to test API robustness
  */
 export class FuzzingEngine {
-  constructor(options = {}) {
+  private readonly options: Required<JSSchemathesisOptions>;
+  private readonly fuzzStrategies: FuzzStrategy[];
+
+  constructor(options: JSSchemathesisOptions) {
     this.options = {
       maxFuzzTests: options.maxFuzzTests || 50,
-      aggressiveness: options.aggressiveness || "medium", // low, medium, high
+      aggressiveness: options.aggressiveness || "medium",
       includeSecurityTests: options.includeSecurityTests !== false,
       includeBoundaryTests: options.includeBoundaryTests !== false,
       includeTypeConfusion: options.includeTypeConfusion !== false,
       ...options,
-    };
+    } as Required<JSSchemathesisOptions>;
 
     this.fuzzStrategies = this.initializeFuzzStrategies();
   }
@@ -21,8 +36,8 @@ export class FuzzingEngine {
   /**
    * Initialize fuzzing strategies based on aggressiveness level
    */
-  initializeFuzzStrategies() {
-    const strategies = {
+  private initializeFuzzStrategies(): FuzzStrategy[] {
+    const strategies: Record<AggressivenessLevel, FuzzStrategy[]> = {
       low: ["boundary", "nulls", "empty"],
       medium: [
         "boundary",
@@ -50,13 +65,23 @@ export class FuzzingEngine {
   /**
    * Generate fuzz tests for a specific endpoint
    */
-  async generateFuzzTests(schema, path, method, options = {}) {
-    const operation = schema.paths[path][method];
+  async generateFuzzTests(
+    schema: OpenAPISchema,
+    path: string,
+    method: string,
+    options: GenerationOptions = {}
+  ): Promise<TestCase[]> {
+    const pathItem = schema.paths?.[path];
+    if (!pathItem) {
+      throw new Error(`Path ${path} not found in schema`);
+    }
+
+    const operation = (pathItem as any)[method];
     if (!operation) {
       throw new Error(`Operation ${method} ${path} not found`);
     }
 
-    const fuzzTests = [];
+    const fuzzTests: TestCase[] = [];
     const numTests = options.maxTests || this.options.maxFuzzTests;
 
     // Generate different types of fuzz tests
@@ -78,11 +103,18 @@ export class FuzzingEngine {
   /**
    * Generate tests for a specific fuzzing strategy
    */
-  generateStrategyTests(operation, schema, path, method, strategy, count) {
-    const tests = [];
+  private generateStrategyTests(
+    operation: any,
+    schema: OpenAPISchema,
+    path: string,
+    method: string,
+    strategy: FuzzStrategy,
+    count: number
+  ): TestCase[] {
+    const tests: TestCase[] = [];
 
     for (let i = 0; i < count; i++) {
-      const test = {
+      const test: TestCase = {
         id: `${method}_${path}_fuzz_${strategy}_${i}`,
         path,
         method: method.toUpperCase(),
@@ -103,8 +135,12 @@ export class FuzzingEngine {
   /**
    * Fuzz parameters based on strategy
    */
-  fuzzParameters(operation, schema, strategy) {
-    const parameters = {};
+  private fuzzParameters(
+    operation: any,
+    schema: OpenAPISchema,
+    strategy: FuzzStrategy
+  ): TestParameters {
+    const parameters: TestParameters = {};
 
     if (!operation.parameters) return parameters;
 
@@ -129,7 +165,11 @@ export class FuzzingEngine {
   /**
    * Fuzz request body based on strategy
    */
-  fuzzRequestBody(operation, schema, strategy) {
+  private fuzzRequestBody(
+    operation: any,
+    schema: OpenAPISchema,
+    strategy: FuzzStrategy
+  ): RequestBody | null {
     if (!operation.requestBody) return null;
 
     const contentTypes = Object.keys(operation.requestBody.content || {});
@@ -150,8 +190,12 @@ export class FuzzingEngine {
   /**
    * Fuzz headers based on strategy
    */
-  fuzzHeaders(operation, schema, strategy) {
-    const headers = {};
+  private fuzzHeaders(
+    operation: any,
+    schema: OpenAPISchema,
+    strategy: FuzzStrategy
+  ): Record<string, string> {
+    const headers: Record<string, string> = {};
 
     switch (strategy) {
       case "injection":
@@ -175,7 +219,11 @@ export class FuzzingEngine {
   /**
    * Generate fuzzed value based on schema and strategy
    */
-  fuzzValue(schema, strategy, rootSchema = null) {
+  private fuzzValue(
+    schema: JSONSchema,
+    strategy: FuzzStrategy,
+    rootSchema?: OpenAPISchema
+  ): any {
     if (!schema) return null;
 
     // Handle $ref
@@ -211,7 +259,7 @@ export class FuzzingEngine {
   /**
    * Generate boundary values
    */
-  generateBoundaryValue(schema, type) {
+  private generateBoundaryValue(schema: JSONSchema, type: string): any {
     switch (type) {
       case "string":
         if (schema.maxLength !== undefined) {
@@ -249,7 +297,7 @@ export class FuzzingEngine {
   /**
    * Generate null/undefined values
    */
-  generateNullValue(type) {
+  private generateNullValue(type: string): any {
     const nullValues = [null, undefined, "", 0, false, [], {}];
     return nullValues[Math.floor(Math.random() * nullValues.length)];
   }
@@ -257,7 +305,7 @@ export class FuzzingEngine {
   /**
    * Generate empty values
    */
-  generateEmptyValue(type) {
+  private generateEmptyValue(type: string): any {
     switch (type) {
       case "string":
         return "";
@@ -278,7 +326,7 @@ export class FuzzingEngine {
   /**
    * Generate overflow values
    */
-  generateOverflowValue(schema, type) {
+  private generateOverflowValue(schema: JSONSchema, type: string): any {
     switch (type) {
       case "string":
         const length = schema.maxLength ? schema.maxLength * 10 : 100000;
@@ -295,7 +343,7 @@ export class FuzzingEngine {
         return new Array(arrayLength).fill("overflow");
 
       case "object":
-        const obj = {};
+        const obj: Record<string, string> = {};
         for (let i = 0; i < 1000; i++) {
           obj[`key_${i}`] = `value_${i}`;
         }
@@ -309,8 +357,8 @@ export class FuzzingEngine {
   /**
    * Generate type confusion values
    */
-  generateTypeConfusionValue(expectedType) {
-    const wrongTypes = {
+  private generateTypeConfusionValue(expectedType: string): any {
+    const wrongTypes: Record<string, any[]> = {
       string: [42, true, [], {}, null],
       number: ["not_a_number", true, [], {}],
       integer: [3.14, "not_an_integer", true, []],
@@ -326,7 +374,7 @@ export class FuzzingEngine {
   /**
    * Generate encoding attack values
    */
-  generateEncodingValue(schema, type) {
+  private generateEncodingValue(schema: JSONSchema, type: string): any {
     if (type !== "string") return this.generateBoundaryValue(schema, type);
 
     const encodingAttacks = [
@@ -346,7 +394,7 @@ export class FuzzingEngine {
   /**
    * Generate injection attack values
    */
-  generateInjectionValue(schema, type) {
+  private generateInjectionValue(schema: JSONSchema, type: string): any {
     if (type !== "string") return this.generateTypeConfusionValue(type);
 
     const injectionPayloads = [
@@ -389,7 +437,7 @@ export class FuzzingEngine {
   /**
    * Generate malformed values
    */
-  generateMalformedValue(schema, type) {
+  private generateMalformedValue(schema: JSONSchema, type: string): any {
     switch (type) {
       case "string":
         return String.fromCharCode(0, 1, 2, 3, 4, 5);
@@ -400,13 +448,13 @@ export class FuzzingEngine {
 
       case "array":
         // Circular reference
-        const arr = [];
+        const arr: any[] = [];
         arr.push(arr);
         return arr;
 
       case "object":
         // Circular reference
-        const obj = {};
+        const obj: any = {};
         obj.self = obj;
         return obj;
 
@@ -418,7 +466,7 @@ export class FuzzingEngine {
   /**
    * Get expected outcome for strategy
    */
-  getExpectedOutcome(strategy) {
+  private getExpectedOutcome(strategy: FuzzStrategy): ExpectedOutcome {
     switch (strategy) {
       case "boundary":
       case "nulls":
@@ -442,13 +490,13 @@ export class FuzzingEngine {
   /**
    * Resolve schema reference
    */
-  resolveReference(schema, ref) {
+  private resolveReference(schema: OpenAPISchema, ref: string): any {
     if (!ref.startsWith("#/")) {
       throw new Error("Only local references are supported");
     }
 
     const path = ref.substring(2).split("/");
-    let current = schema;
+    let current: any = schema;
 
     for (const segment of path) {
       current = current[segment];

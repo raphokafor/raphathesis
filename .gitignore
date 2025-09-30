@@ -93,6 +93,14 @@ batch-test-results.json
 results.json
 report.html
 
+# TypeScript compiled files (only keep in dist/)
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+examples/**/*.js
+examples/**/*.js.map
+examples/**/*.d.ts
+
 # IDE
 .vscode/
 .idea/

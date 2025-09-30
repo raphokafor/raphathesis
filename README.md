@@ -1,6 +1,6 @@
 # JS-Schemathesis
 
-🧪 **Property-based API testing framework for JavaScript** - A JavaScript implementation inspired by Python's [schemathesis](https://github.com/schemathesis/schemathesis).
+🧪 **Property-based API testing framework for TypeScript/JavaScript** - A TypeScript implementation inspired by Python's [schemathesis](https://github.com/schemathesis/schemathesis).
 
 Automatically generate comprehensive test cases from your OpenAPI specifications and discover bugs through property-based testing and intelligent fuzzing.
 
@@ -27,6 +27,17 @@ Or run directly with npx:
 npx js-schemathesis run https://petstore.swagger.io/v2/swagger.json
 ```
 
+## Development Setup
+
+For development or to use the TypeScript source:
+
+```bash
+git clone <repository-url>
+cd js-schemathesis
+npm install
+npm run build
+```
+
 ## Quick Start
 
 ### Command Line Usage
@@ -50,6 +61,49 @@ js-schemathesis validate https://api.example.com/openapi.json
 ```
 
 ### Programmatic Usage
+
+**TypeScript:**
+
+```typescript
+import {
+  JSSchemathesis,
+  type JSSchemathesisOptions,
+  type TestResult,
+} from "js-schemathesis";
+
+const options: JSSchemathesisOptions = {
+  baseURL: "https://api.example.com",
+  auth: { type: "bearer", token: "your-token" },
+  maxTests: 100,
+  verbose: true,
+};
+
+const tester = new JSSchemathesis(options);
+
+// Test entire API
+const report: string = await tester.runFromSchema("openapi.json");
+console.log(report);
+
+// Test specific endpoint
+const schema = await tester.parser.parse("openapi.json");
+const results: TestResult[] = await tester.testEndpoint(
+  schema,
+  "/users/{id}",
+  "get"
+);
+
+// Run fuzzing tests
+const fuzzResults: TestResult[] = await tester.fuzzEndpoint(
+  schema,
+  "/users",
+  "post",
+  {
+    maxTests: 50,
+  }
+);
+```
+
+**JavaScript:**
 
 ```javascript
 import { JSSchemathesis } from "js-schemathesis";
@@ -340,4 +394,5 @@ node src/cli.js run https://petstore.swagger.io/v2/swagger.json \
 node src/cli.js run https://petstore.swagger.io/v2/swagger.json \
  --format html \
  --output petstore-report.html
+
 # raphathesis

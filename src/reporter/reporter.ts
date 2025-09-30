@@ -1,27 +1,42 @@
 import chalk from "chalk";
 import fs from "fs/promises";
 import path from "path";
+import type {
+  TestResult,
+  TestReport,
+  TestSummary,
+  EndpointSummary,
+  StrategySummary,
+  SecurityAnalysis,
+  SecurityIssue,
+  PerformanceAnalysis,
+  CoverageAnalysis,
+  OutputFormat,
+  JSSchemathesisOptions,
+} from "../types/index.js";
 
 /**
  * Test Results Reporter
  * Generates detailed reports of test execution results
  */
 export class Reporter {
-  constructor(options = {}) {
+  private readonly options: Required<JSSchemathesisOptions>;
+
+  constructor(options: JSSchemathesisOptions) {
     this.options = {
       verbose: options.verbose || false,
-      outputFormat: options.outputFormat || "console", // console, json, html
-      outputFile: options.outputFile || null,
+      outputFormat: options.outputFormat || "console",
+      outputFile: options.outputFile || undefined,
       includePassedTests: options.includePassedTests !== false,
       includeRequestDetails: options.includeRequestDetails || false,
       ...options,
-    };
+    } as Required<JSSchemathesisOptions>;
   }
 
   /**
    * Generate comprehensive test report
    */
-  async generateReport(results) {
+  async generateReport(results: TestResult[]): Promise<string> {
     const report = this.analyzeResults(results);
 
     switch (this.options.outputFormat) {
@@ -38,8 +53,8 @@ export class Reporter {
   /**
    * Analyze test results and generate statistics
    */
-  analyzeResults(results) {
-    const analysis = {
+  private analyzeResults(results: TestResult[]): TestReport {
+    const analysis: TestReport = {
       summary: this.generateSummary(results),
       byEndpoint: this.groupByEndpoint(results),
       byStrategy: this.groupByStrategy(results),
@@ -58,7 +73,7 @@ export class Reporter {
   /**
    * Generate test summary statistics
    */
-  generateSummary(results) {
+  private generateSummary(results: TestResult[]): TestSummary {
     const total = results.length;
     const passed = results.filter((r) => r.status === "passed").length;
     const failed = results.filter((r) => r.status === "failed").length;
@@ -75,20 +90,20 @@ export class Reporter {
       passed,
       failed,
       errors,
-      passRate: total > 0 ? ((passed / total) * 100).toFixed(2) : 0,
+      passRate: total > 0 ? ((passed / total) * 100).toFixed(2) : "0",
       totalDuration,
       averageDuration: Math.round(avgDuration),
-      startTime: results.length > 0 ? results[0].timestamp : null,
+      startTime: results.length > 0 ? results[0].timestamp : undefined,
       endTime:
-        results.length > 0 ? results[results.length - 1].timestamp : null,
+        results.length > 0 ? results[results.length - 1].timestamp : undefined,
     };
   }
 
   /**
    * Group results by endpoint
    */
-  groupByEndpoint(results) {
-    const grouped = {};
+  private groupByEndpoint(results: TestResult[]): EndpointSummary[] {
+    const grouped: Record<string, EndpointSummary> = {};
 
     for (const result of results) {
       const key = `${result.testCase.method} ${result.testCase.path}`;
@@ -104,7 +119,9 @@ export class Reporter {
       }
 
       grouped[key].total++;
-      grouped[key][result.status]++;
+      if (result.status === "passed") grouped[key].passed++;
+      else if (result.status === "failed") grouped[key].failed++;
+      else if (result.status === "error") grouped[key].errors++;
       grouped[key].results.push(result);
     }
 
@@ -114,8 +131,8 @@ export class Reporter {
   /**
    * Group results by testing strategy
    */
-  groupByStrategy(results) {
-    const grouped = {};
+  private groupByStrategy(results: TestResult[]): StrategySummary[] {
+    const grouped: Record<string, StrategySummary> = {};
 
     for (const result of results) {
       const strategy =
@@ -132,7 +149,9 @@ export class Reporter {
       }
 
       grouped[strategy].total++;
-      grouped[strategy][result.status]++;
+      if (result.status === "passed") grouped[strategy].passed++;
+      else if (result.status === "failed") grouped[strategy].failed++;
+      else if (result.status === "error") grouped[strategy].errors++;
       grouped[strategy].results.push(result);
     }
 
@@ -142,8 +161,8 @@ export class Reporter {
   /**
    * Analyze security-related findings
    */
-  analyzeSecurityIssues(results) {
-    const securityIssues = [];
+  private analyzeSecurityIssues(results: TestResult[]): SecurityAnalysis {
+    const securityIssues: SecurityIssue[] = [];
 
     for (const result of results) {
       // Check for potential security issues
@@ -209,7 +228,7 @@ export class Reporter {
   /**
    * Analyze performance metrics
    */
-  analyzePerformance(results) {
+  private analyzePerformance(results: TestResult[]): PerformanceAnalysis {
     const durations = results.map((r) => r.duration || 0).filter((d) => d > 0);
 
     if (durations.length === 0) {
@@ -228,7 +247,7 @@ export class Reporter {
     const p95Threshold = durations[p95Index];
 
     const slowTests = results
-      .filter((r) => r.duration > p95Threshold)
+      .filter((r) => r.duration && r.duration > p95Threshold)
       .sort((a, b) => (b.duration || 0) - (a.duration || 0))
       .slice(0, 10);
 
@@ -245,10 +264,10 @@ export class Reporter {
   /**
    * Analyze test coverage
    */
-  analyzeCoverage(results) {
-    const endpoints = new Set();
-    const methods = new Set();
-    const statusCodes = new Set();
+  private analyzeCoverage(results: TestResult[]): CoverageAnalysis {
+    const endpoints = new Set<string>();
+    const methods = new Set<string>();
+    const statusCodes = new Set<number>();
 
     for (const result of results) {
       endpoints.add(`${result.testCase.method} ${result.testCase.path}`);
@@ -269,7 +288,7 @@ export class Reporter {
   /**
    * Generate console report
    */
-  generateConsoleReport(analysis) {
+  private generateConsoleReport(analysis: TestReport): string {
     const { summary, byEndpoint, failures, errors, security, performance } =
       analysis;
 
@@ -328,7 +347,7 @@ export class Reporter {
         const passRate =
           endpoint.total > 0
             ? ((endpoint.passed / endpoint.total) * 100).toFixed(1)
-            : 0;
+            : "0";
         const status =
           endpoint.failed > 0
             ? chalk.red("❌")
@@ -379,14 +398,14 @@ export class Reporter {
   /**
    * Generate JSON report
    */
-  generateJsonReport(analysis) {
+  private generateJsonReport(analysis: TestReport): string {
     return JSON.stringify(analysis, null, 2);
   }
 
   /**
    * Generate HTML report
    */
-  generateHtmlReport(analysis) {
+  private generateHtmlReport(analysis: TestReport): string {
     const { summary, byEndpoint, security } = analysis;
 
     return `<!DOCTYPE html>
@@ -472,7 +491,7 @@ export class Reporter {
             const passRate =
               endpoint.total > 0
                 ? ((endpoint.passed / endpoint.total) * 100).toFixed(1)
-                : 0;
+                : "0";
             return `
             <div class="endpoint">
                 <strong>${endpoint.endpoint}</strong>
@@ -494,16 +513,17 @@ export class Reporter {
   /**
    * Save report to file
    */
-  async saveReport(content, filename) {
-    if (!filename) return;
+  async saveReport(content: string, filename?: string): Promise<void> {
+    const targetFile = filename || this.options.outputFile;
+    if (!targetFile) return;
 
     try {
-      const dir = path.dirname(filename);
+      const dir = path.dirname(targetFile);
       await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(filename, content, "utf-8");
-      console.log(`📄 Report saved to ${filename}`);
+      await fs.writeFile(targetFile, content, "utf-8");
+      console.log(`📄 Report saved to ${targetFile}`);
     } catch (error) {
-      console.error(`Failed to save report: ${error.message}`);
+      console.error(`Failed to save report: ${(error as Error).message}`);
     }
   }
 }

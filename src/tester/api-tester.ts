@@ -1,23 +1,38 @@
-import axios from "axios";
-import Ajv from "ajv";
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
+import Ajv, { ValidateFunction } from "ajv";
+import type {
+  OpenAPISchema,
+  TestCase,
+  TestResult,
+  TestResponse,
+  ValidationResult,
+  ValidationCheck,
+  HttpClientConfig,
+  JSSchemathesisOptions,
+} from "../types/index.js";
+import { TestExecutionError } from "../types/index.js";
 
 /**
  * API Test Runner
  * Executes test cases against real APIs and validates responses
  */
 export class APITester {
-  constructor(options = {}) {
+  private readonly options: Required<JSSchemathesisOptions>;
+  private readonly ajv: Ajv;
+  private readonly client: AxiosInstance;
+
+  constructor(options: JSSchemathesisOptions) {
     this.options = {
       timeout: options.timeout || 10000,
       baseURL: options.baseURL || "",
       headers: options.headers || {},
-      auth: options.auth || null,
+      auth: options.auth || undefined,
       validateResponses: options.validateResponses !== false,
       followRedirects: options.followRedirects !== false,
       maxRedirects: options.maxRedirects || 5,
       retries: options.retries || 0,
       ...options,
-    };
+    } as Required<JSSchemathesisOptions>;
 
     this.ajv = new Ajv({ allErrors: true, strict: false });
     this.client = this.createHttpClient();
@@ -26,8 +41,8 @@ export class APITester {
   /**
    * Create HTTP client with default configuration
    */
-  createHttpClient() {
-    const config = {
+  private createHttpClient(): AxiosInstance {
+    const config: AxiosRequestConfig = {
       timeout: this.options.timeout,
       baseURL: this.options.baseURL,
       headers: this.options.headers,
@@ -37,11 +52,11 @@ export class APITester {
 
     if (this.options.auth) {
       if (this.options.auth.type === "bearer") {
-        config.headers.Authorization = `Bearer ${this.options.auth.token}`;
+        config.headers!.Authorization = `Bearer ${this.options.auth.token}`;
       } else if (this.options.auth.type === "basic") {
         config.auth = {
-          username: this.options.auth.username,
-          password: this.options.auth.password,
+          username: this.options.auth.username!,
+          password: this.options.auth.password!,
         };
       }
     }
@@ -52,8 +67,11 @@ export class APITester {
   /**
    * Run multiple test cases
    */
-  async runTests(testCases, schema) {
-    const results = [];
+  async runTests(
+    testCases: TestCase[],
+    schema: OpenAPISchema
+  ): Promise<TestResult[]> {
+    const results: TestResult[] = [];
     const total = testCases.length;
 
     console.log(`🚀 Running ${total} test cases...`);
@@ -85,17 +103,17 @@ export class APITester {
           );
         }
       } catch (error) {
-        const result = {
+        const result: TestResult = {
           id: testCase.id,
           testCase,
           status: "error",
-          error: error.message,
+          error: (error as Error).message,
           timestamp: new Date().toISOString(),
         };
         results.push(result);
 
         if (this.options.verbose) {
-          console.log(`   ⚠️ ERROR: ${error.message}`);
+          console.log(`   ⚠️ ERROR: ${(error as Error).message}`);
         }
       }
 
@@ -111,7 +129,10 @@ export class APITester {
   /**
    * Run a single test case
    */
-  async runSingleTest(testCase, schema) {
+  async runSingleTest(
+    testCase: TestCase,
+    schema: OpenAPISchema
+  ): Promise<TestResult> {
     const startTime = Date.now();
 
     try {
@@ -140,50 +161,47 @@ export class APITester {
     } catch (error) {
       const duration = Date.now() - startTime;
 
-      return {
-        id: testCase.id,
+      throw new TestExecutionError(
+        `Test execution failed: ${(error as Error).message}`,
         testCase,
-        status: "error",
-        error: error.message,
-        duration,
-        timestamp: new Date().toISOString(),
-      };
+        error as Error
+      );
     }
   }
 
   /**
    * Build HTTP request from test case
    */
-  buildRequest(testCase) {
+  private buildRequest(testCase: TestCase): AxiosRequestConfig {
     const { path, method, parameters, requestBody, headers } = testCase;
 
     // Build URL with path parameters
     let url = path;
     if (parameters?.path) {
       for (const [key, value] of Object.entries(parameters.path)) {
-        url = url.replace(`{${key}}`, encodeURIComponent(value));
+        url = url.replace(`{${key}}`, encodeURIComponent(String(value)));
       }
     }
 
     // Build request config
-    const config = {
-      method: method.toLowerCase(),
+    const config: AxiosRequestConfig = {
+      method: method.toLowerCase() as any,
       url,
       headers: { ...headers },
       params: parameters?.query || {},
     };
 
     // Add request body
-    if (requestBody && ["post", "put", "patch"].includes(config.method)) {
+    if (requestBody && ["post", "put", "patch"].includes(config.method!)) {
       config.data = requestBody.data;
       if (requestBody.contentType) {
-        config.headers["Content-Type"] = requestBody.contentType;
+        config.headers!["Content-Type"] = requestBody.contentType;
       }
     }
 
     // Add header parameters
     if (parameters?.header) {
-      Object.assign(config.headers, parameters.header);
+      Object.assign(config.headers!, parameters.header);
     }
 
     return config;
@@ -192,15 +210,17 @@ export class APITester {
   /**
    * Execute HTTP request with retries
    */
-  async executeRequest(request) {
-    let lastError;
+  private async executeRequest(
+    request: AxiosRequestConfig
+  ): Promise<AxiosResponse> {
+    let lastError: Error;
 
     for (let attempt = 0; attempt <= this.options.retries; attempt++) {
       try {
         const response = await this.client.request(request);
         return response;
       } catch (error) {
-        lastError = error;
+        lastError = error as Error;
 
         if (attempt < this.options.retries) {
           const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
@@ -209,14 +229,18 @@ export class APITester {
       }
     }
 
-    throw lastError;
+    throw lastError!;
   }
 
   /**
    * Validate response against expectations
    */
-  validateResponse(response, testCase, schema) {
-    const validations = [];
+  private validateResponse(
+    response: AxiosResponse,
+    testCase: TestCase,
+    schema: OpenAPISchema
+  ): ValidationResult {
+    const validations: ValidationCheck[] = [];
     let valid = true;
 
     // Check status code expectations
@@ -256,11 +280,14 @@ export class APITester {
   /**
    * Validate HTTP status code
    */
-  validateStatusCode(response, testCase) {
+  private validateStatusCode(
+    response: AxiosResponse,
+    testCase: TestCase
+  ): ValidationCheck {
     const status = response.status;
     const { expectedOutcome } = testCase;
 
-    let expectedStatuses = [];
+    let expectedStatuses: number[] = [];
 
     switch (expectedOutcome) {
       case "success":
@@ -297,14 +324,21 @@ export class APITester {
   /**
    * Validate response against OpenAPI schema
    */
-  validateResponseSchema(response, testCase, schema) {
+  private validateResponseSchema(
+    response: AxiosResponse,
+    testCase: TestCase,
+    schema: OpenAPISchema
+  ): ValidationCheck {
     try {
       const operation = testCase.operation;
       const status = response.status.toString();
 
-      if (!operation.responses || !operation.responses[status]) {
+      if (
+        !(operation as any).responses ||
+        !(operation as any).responses[status]
+      ) {
         // Check for default response
-        if (!operation.responses.default) {
+        if (!(operation as any).responses.default) {
           return {
             type: "schema",
             valid: true,
@@ -314,7 +348,8 @@ export class APITester {
       }
 
       const responseSpec =
-        operation.responses[status] || operation.responses.default;
+        (operation as any).responses[status] ||
+        (operation as any).responses.default;
       if (!responseSpec || !responseSpec.content) {
         return {
           type: "schema",
@@ -339,7 +374,7 @@ export class APITester {
       }
 
       // Validate response data against schema
-      const validate = this.ajv.compile(mediaType.schema);
+      const validate: ValidateFunction = this.ajv.compile(mediaType.schema);
       const valid = validate(response.data);
 
       return {
@@ -353,7 +388,7 @@ export class APITester {
       return {
         type: "schema",
         valid: false,
-        message: `Schema validation error: ${error.message}`,
+        message: `Schema validation error: ${(error as Error).message}`,
       };
     }
   }
@@ -361,7 +396,10 @@ export class APITester {
   /**
    * Validate response headers
    */
-  validateResponseHeaders(response, testCase) {
+  private validateResponseHeaders(
+    response: AxiosResponse,
+    testCase: TestCase
+  ): ValidationCheck {
     // Basic header validation
     const headers = response.headers;
 
@@ -388,7 +426,10 @@ export class APITester {
   /**
    * Find matching media type from content spec
    */
-  findMatchingMediaType(content, contentType) {
+  private findMatchingMediaType(
+    content: Record<string, any>,
+    contentType: string
+  ): any {
     // Exact match
     if (content[contentType]) {
       return content[contentType];
@@ -414,11 +455,11 @@ export class APITester {
   /**
    * Sanitize response for logging (remove sensitive data)
    */
-  sanitizeResponse(response) {
+  private sanitizeResponse(response: AxiosResponse): TestResponse {
     return {
       status: response.status,
       statusText: response.statusText,
-      headers: response.headers,
+      headers: response.headers as Record<string, string>,
       data: this.truncateData(response.data),
       size: JSON.stringify(response.data || "").length,
     };
@@ -427,7 +468,7 @@ export class APITester {
   /**
    * Truncate large response data for logging
    */
-  truncateData(data) {
+  private truncateData(data: any): any {
     const str = JSON.stringify(data);
     if (str.length > 1000) {
       return JSON.parse(str.substring(0, 1000)) + "... (truncated)";
@@ -438,7 +479,7 @@ export class APITester {
   /**
    * Utility delay function
    */
-  delay(ms) {
+  private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

@@ -1,11 +1,24 @@
 import fc from "fast-check";
+import type { OpenAPIV3 } from "openapi-types";
+import type {
+  OpenAPISchema,
+  TestCase,
+  TestParameters,
+  RequestBody,
+  GenerationOptions,
+  JSONSchema,
+  ParameterObject,
+  JSSchemathesisOptions,
+} from "../types/index.js";
 
 /**
  * Property-based test generator
  * Generates comprehensive test cases from OpenAPI schemas using fast-check
  */
 export class TestGenerator {
-  constructor(options = {}) {
+  private readonly options: Required<JSSchemathesisOptions>;
+
+  constructor(options: JSSchemathesisOptions) {
     this.options = {
       maxTests: options.maxTests || 100,
       seed: options.seed || Date.now(),
@@ -13,18 +26,20 @@ export class TestGenerator {
       includeEdgeCases: options.includeEdgeCases !== false,
       generateInvalidData: options.generateInvalidData !== false,
       ...options,
-    };
+    } as Required<JSSchemathesisOptions>;
   }
 
   /**
    * Generate test cases for all endpoints in schema
    */
-  async generateTests(schema) {
-    const testCases = [];
+  async generateTests(schema: OpenAPISchema): Promise<TestCase[]> {
+    const testCases: TestCase[] = [];
 
-    for (const [path, pathItem] of Object.entries(schema.paths)) {
+    for (const [path, pathItem] of Object.entries(schema.paths || {})) {
+      if (!pathItem) continue;
+
       for (const [method, operation] of Object.entries(pathItem)) {
-        if (typeof operation === "object" && operation.responses) {
+        if (typeof operation === "object" && (operation as any).responses) {
           const endpointTests = await this.generateForEndpoint(
             schema,
             path,
@@ -41,18 +56,28 @@ export class TestGenerator {
   /**
    * Generate test cases for a specific endpoint
    */
-  async generateForEndpoint(schema, path, method, options = {}) {
-    const operation = schema.paths[path][method];
+  async generateForEndpoint(
+    schema: OpenAPISchema,
+    path: string,
+    method: string,
+    options: GenerationOptions = {}
+  ): Promise<TestCase[]> {
+    const pathItem = schema.paths?.[path];
+    if (!pathItem) {
+      throw new Error(`Path ${path} not found in schema`);
+    }
+
+    const operation = (pathItem as any)[method];
     if (!operation) {
       throw new Error(`Operation ${method} ${path} not found`);
     }
 
-    const testCases = [];
+    const testCases: TestCase[] = [];
     const numTests = options.maxTests || Math.min(this.options.maxTests, 20);
 
     // Generate valid test cases
     for (let i = 0; i < numTests; i++) {
-      const testCase = {
+      const testCase: TestCase = {
         id: `${method}_${path}_valid_${i}`,
         path,
         method: method.toUpperCase(),
@@ -71,7 +96,7 @@ export class TestGenerator {
     // Generate invalid test cases if enabled
     if (this.options.generateInvalidData) {
       for (let i = 0; i < Math.floor(numTests / 2); i++) {
-        const testCase = {
+        const testCase: TestCase = {
           id: `${method}_${path}_invalid_${i}`,
           path,
           method: method.toUpperCase(),
@@ -96,8 +121,12 @@ export class TestGenerator {
   /**
    * Generate parameters for an operation
    */
-  generateParameters(operation, schema, options = {}) {
-    const parameters = {};
+  private generateParameters(
+    operation: any,
+    schema: OpenAPISchema,
+    options: GenerationOptions = {}
+  ): TestParameters {
+    const parameters: TestParameters = {};
 
     if (!operation.parameters) return parameters;
 
@@ -126,7 +155,11 @@ export class TestGenerator {
   /**
    * Generate request body for an operation
    */
-  generateRequestBody(operation, schema, options = {}) {
+  private generateRequestBody(
+    operation: any,
+    schema: OpenAPISchema,
+    options: GenerationOptions = {}
+  ): RequestBody | null {
     if (!operation.requestBody) return null;
 
     const contentTypes = Object.keys(operation.requestBody.content || {});
@@ -148,8 +181,11 @@ export class TestGenerator {
   /**
    * Generate headers for an operation
    */
-  generateHeaders(operation, schema) {
-    const headers = {
+  private generateHeaders(
+    operation: any,
+    schema: OpenAPISchema
+  ): Record<string, string> {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
     };
@@ -157,11 +193,15 @@ export class TestGenerator {
     // Add any required headers from parameters
     if (operation.parameters) {
       operation.parameters
-        .filter((p) => p.in === "header" && p.required)
-        .forEach((p) => {
-          headers[p.name] = this.generateValueForSchema(p.schema || p, schema, {
-            valid: true,
-          });
+        .filter((p: ParameterObject) => p.in === "header" && p.required)
+        .forEach((p: ParameterObject) => {
+          headers[p.name] = this.generateValueForSchema(
+            p.schema || (p as any),
+            schema,
+            {
+              valid: true,
+            }
+          );
         });
     }
 
@@ -171,7 +211,11 @@ export class TestGenerator {
   /**
    * Generate value based on JSON Schema
    */
-  generateValueForSchema(schema, rootSchema, options = {}) {
+  private generateValueForSchema(
+    schema: JSONSchema,
+    rootSchema: OpenAPISchema,
+    options: GenerationOptions = {}
+  ): any {
     if (!schema) return null;
 
     // Handle $ref
@@ -208,8 +252,8 @@ export class TestGenerator {
   /**
    * Generate string values
    */
-  generateString(schema, valid = true) {
-    const constraints = {};
+  private generateString(schema: JSONSchema, valid: boolean = true): string {
+    const constraints: fc.StringConstraints = {};
 
     if (schema.minLength !== undefined)
       constraints.minLength = schema.minLength;
@@ -265,16 +309,19 @@ export class TestGenerator {
   /**
    * Generate number values
    */
-  generateNumber(schema, valid = true) {
-    const constraints = {};
+  private generateNumber(
+    schema: JSONSchema,
+    valid: boolean = true
+  ): number | string {
+    const constraints: fc.IntegerConstraints | fc.FloatConstraints = {};
 
     if (schema.minimum !== undefined) constraints.min = schema.minimum;
     if (schema.maximum !== undefined) constraints.max = schema.maximum;
 
     const isInteger = schema.type === "integer";
     const generator = isInteger
-      ? fc.integer(constraints)
-      : fc.float(constraints);
+      ? fc.integer(constraints as fc.IntegerConstraints)
+      : fc.float(constraints as fc.FloatConstraints);
 
     const samples = fc.sample(generator, 1);
     let value = samples[0];
@@ -290,7 +337,7 @@ export class TestGenerator {
       } else if (schema.minimum !== undefined) {
         value = schema.minimum - (isInteger ? 1 : 0.1);
       } else {
-        value = isInteger ? "not-a-number" : "not-a-number";
+        return isInteger ? "not-a-number" : "not-a-number";
       }
     }
 
@@ -300,7 +347,10 @@ export class TestGenerator {
   /**
    * Generate boolean values
    */
-  generateBoolean(schema, valid = true) {
+  private generateBoolean(
+    schema: JSONSchema,
+    valid: boolean = true
+  ): boolean | string {
     if (!valid) {
       return "not-a-boolean";
     }
@@ -310,7 +360,11 @@ export class TestGenerator {
   /**
    * Generate array values
    */
-  generateArray(schema, rootSchema, options = {}) {
+  private generateArray(
+    schema: JSONSchema,
+    rootSchema: OpenAPISchema,
+    options: GenerationOptions = {}
+  ): any[] | string {
     const { valid = true } = options;
     const items = schema.items || { type: "string" };
 
@@ -319,7 +373,7 @@ export class TestGenerator {
 
     const length =
       Math.floor(Math.random() * (maxItems - minItems + 1)) + minItems;
-    const array = [];
+    const array: any[] = [];
 
     for (let i = 0; i < length; i++) {
       array.push(this.generateValueForSchema(items, rootSchema, options));
@@ -340,9 +394,13 @@ export class TestGenerator {
   /**
    * Generate object values
    */
-  generateObject(schema, rootSchema, options = {}) {
+  private generateObject(
+    schema: JSONSchema,
+    rootSchema: OpenAPISchema,
+    options: GenerationOptions = {}
+  ): Record<string, any> {
     const { valid = true } = options;
-    const obj = {};
+    const obj: Record<string, any> = {};
 
     if (schema.properties) {
       for (const [propName, propSchema] of Object.entries(schema.properties)) {
@@ -372,7 +430,7 @@ export class TestGenerator {
   /**
    * Generate from regex pattern (simplified)
    */
-  generateFromPattern(pattern) {
+  private generateFromPattern(pattern: string): string {
     // Simple pattern matching for common cases
     if (pattern === "^[a-zA-Z0-9]+$") return "abc123";
     if (pattern.includes("[0-9]")) return "123";
@@ -383,7 +441,7 @@ export class TestGenerator {
   /**
    * Fallback value generation
    */
-  generateFallbackValue(type, valid = true) {
+  private generateFallbackValue(type: string, valid: boolean = true): any {
     switch (type) {
       case "string":
         return valid ? "test" : null;
@@ -405,13 +463,13 @@ export class TestGenerator {
   /**
    * Resolve schema reference
    */
-  resolveReference(schema, ref) {
+  private resolveReference(schema: OpenAPISchema, ref: string): any {
     if (!ref.startsWith("#/")) {
       throw new Error("Only local references are supported");
     }
 
     const path = ref.substring(2).split("/");
-    let current = schema;
+    let current: any = schema;
 
     for (const segment of path) {
       current = current[segment];
